@@ -16,9 +16,20 @@ if not WP_URL or not WP_USER or not WP_APP_PASSWORD:
     raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en el entorno")
 
 # Prepara Basic Auth para WordPress REST API
-credentials = f"{WP_USER}:{WP_APP_PASSWORD}"
-token = base64.b64encode(credentials.encode()).decode()
-HEADERS = {"Authorization": f"Basic {token}"}
+# Usaremos el helper de Requests para Basic Auth
+from requests.auth import HTTPBasicAuth
+
+# …
+
+# Ya no necesitamos HEADERS de Authorization global
+HEADERS = {
+    # sólo la cabecera de Content-Disposition, el resto lo pondremos en la llamada
+    "Content-Disposition": None,       # lo rellenaremos dinámicamente
+    "Content-Type": "application/octet-stream"
+}
+# y el auth object:
+AUTH = HTTPBasicAuth(WP_USER, WP_APP_PASSWORD)
+
 
 app = FastAPI()
 
