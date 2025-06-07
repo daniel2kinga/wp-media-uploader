@@ -6,16 +6,16 @@ from pydantic import BaseModel
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-# Carga las variables definidas en .env o en el entorno
+# Carga variables de entorno de .env o del entorno de Railway
 load_dotenv()
 WP_URL = os.getenv("WP_URL")
 WP_USER = os.getenv("WP_USER")
 WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
 
-if not all([WP_URL, WP_USER, WP_APP_PASSWORD]):
-    raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en .env")
+if not WP_URL or not WP_USER or not WP_APP_PASSWORD:
+    raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en el entorno")
 
-# Prepara la cabecera de Basic Auth para WordPress
+# Prepara Basic Auth para WordPress REST API
 credentials = f"{WP_USER}:{WP_APP_PASSWORD}"
 token = base64.b64encode(credentials.encode()).decode()
 HEADERS = {"Authorization": f"Basic {token}"}
@@ -26,9 +26,8 @@ class Item(BaseModel):
     url: str
 
 def get_filename(path_or_url: str) -> str:
-    """Extrae el nombre de fichero (con extensión) de una URL o ruta local."""
-    parsed = urlparse(path_or_url)
-    return os.path.basename(parsed.path)
+    """Extrae el nombre de archivo (con extensión) de una URL o ruta."""
+    return os.path.basename(urlparse(path_or_url).path)
 
 def download_image(url: str) -> bytes:
     """Descarga los bytes de la imagen desde la URL dada."""
@@ -36,18 +35,24 @@ def download_image(url: str) -> bytes:
     resp.raise_for_status()
     return resp.content
 
+@app.get("/health")
+def health():
+    """Endpoint de verificación: devuelve {"status":"ok"}."""
+    return {"status": "ok"}
+
 @app.post("/upload_media")
 def upload_media_endpoint(item: Item):
     """
-    Endpoint que recibe JSON {"url": "..."} y sube esa imagen a WP Media.
-    Devuelve {"id": <media_id>, "source_url": "<url_publica>"}.
+    Recibe JSON { "url": "<imagen_url>" },
+    descarga la imagen y la sube a WordPress Media Library.
+    Devuelve { "id": <media_id>, "source_url": "<URL pública>" }.
     """
     try:
-        # 1) Descargar la imagen
+        # 1) Descargar
         data = download_image(item.url)
         filename = get_filename(item.url)
 
-        # 2) Hacer POST a la REST API de WordPress /wp-json/wp/v2/media
+        # 2) Subir a WP
         upload_url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/media"
         headers = {
             **HEADERS,
@@ -57,12 +62,9 @@ def upload_media_endpoint(item: Item):
         resp = requests.post(upload_url, data=data, headers=headers)
         resp.raise_for_status()
 
-        j = resp.json()
-        return {"id": j["id"], "source_url": j["source_url"]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        result = resp.json()
+        return {"id": result["id"], "source_url": result["source_url"]}
 
-@app.get("/health")
-def health():
-    """Endpoint de comprobación de vida."""
-    return {"status": "ok"}
+    except Exception as e:
+        # Devuelve mensaje de error al cliente
+        raise HTTPException(status_code=500, detail=str(e))
