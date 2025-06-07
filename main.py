@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 
 # Carga .env
 load_dotenv()
-WP_URL = os.getenv("WP_URL")
-WP_USER = os.getenv("WP_USER")
-WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
+WP_URL = os.getenv("https://virtualizedmind.com/")
+WP_USER = os.getenv("daniel2kinga_iiorc19b")
+WP_APP_PASSWORD = os.getenv("UWSy koAz YNQK Gwnf GbEs LRbt")
 
 if not all([WP_URL, WP_USER, WP_APP_PASSWORD]):
     raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en .env")
