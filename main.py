@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+from requests.auth import HTTPBasicAuth
 
 # Carga variables de entorno de .env o del entorno de Railway
 load_dotenv()
@@ -15,21 +16,8 @@ WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
 if not WP_URL or not WP_USER or not WP_APP_PASSWORD:
     raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en el entorno")
 
-# Prepara Basic Auth para WordPress REST API
-# Usaremos el helper de Requests para Basic Auth
-from requests.auth import HTTPBasicAuth
-
-# …
-
-# Ya no necesitamos HEADERS de Authorization global
-HEADERS = {
-    # sólo la cabecera de Content-Disposition, el resto lo pondremos en la llamada
-    "Content-Disposition": None,       # lo rellenaremos dinámicamente
-    "Content-Type": "application/octet-stream"
-}
-# y el auth object:
+# Preparar objeto de autenticación Basic Auth
 AUTH = HTTPBasicAuth(WP_USER, WP_APP_PASSWORD)
-
 
 app = FastAPI()
 
@@ -59,18 +47,22 @@ def upload_media_endpoint(item: Item):
     Devuelve { "id": <media_id>, "source_url": "<URL pública>" }.
     """
     try:
-        # 1) Descargar
+        # 1) Descargar la imagen
         data = download_image(item.url)
         filename = get_filename(item.url)
 
         # 2) Subir a WP
         upload_url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/media"
         headers = {
-            **HEADERS,
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Type": "application/octet-stream"
         }
-        resp = requests.post(upload_url, data=data, headers=headers)
+        resp = requests.post(
+            upload_url,
+            data=data,
+            headers=headers,
+            auth=AUTH
+        )
         resp.raise_for_status()
 
         result = resp.json()
