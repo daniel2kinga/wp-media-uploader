@@ -7,16 +7,16 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
 
-# 1) Carga .env o variables de entorno de Railway
+# 1) Carga de configuración
 load_dotenv()
 WP_URL          = os.getenv("WP_URL")           # e.g. https://virtualizedmind.com
-WP_USER         = os.getenv("WP_USER")          # tu login de WP
-WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")  # tu Application Password nativo de WP
+WP_USER         = os.getenv("WP_USER")          # tu usuario de WP
+WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")  # tu Application Password
 
 if not (WP_URL and WP_USER and WP_APP_PASSWORD):
     raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en el entorno")
 
-# 2) Prepara Basic Auth con Application Passwords
+# 2) Basic Auth usando Application Passwords nativos de WP
 AUTH = HTTPBasicAuth(WP_USER, WP_APP_PASSWORD)
 
 app = FastAPI()
@@ -28,9 +28,9 @@ def get_filename(url: str) -> str:
     return os.path.basename(urlparse(url).path)
 
 def download_image(url: str) -> bytes:
-    resp = requests.get(url, headers={"User-Agent":"Mozilla/5.0"})
-    resp.raise_for_status()
-    return resp.content
+    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    r.raise_for_status()
+    return r.content
 
 @app.get("/health")
 def health():
@@ -39,31 +39,25 @@ def health():
 @app.post("/upload_media")
 def upload_media(item: Item):
     """
-    1) Descarga la imagen desde item.url
-    2) Sube usando multipart/form-data a /wp-json/wp/v2/media
-    3) Devuelve {id, source_url}
+    1) Descarga la imagen de item.url
+    2) La sube a /wp-json/wp/v2/media usando multipart/form-data
+    3) Devuelve {"id":..., "source_url":...}
     """
     try:
-        # --- 1) Descarga ---
-        data = download_image(item.url)
+        img_data = download_image(item.url)
         filename = get_filename(item.url)
 
-        # --- 2) Detecta Content-Type ---
+        # Averiguar MIME type
         ctype, _ = mimetypes.guess_type(filename)
         if not ctype:
             ctype = "application/octet-stream"
 
-        # --- 3) Prepara multipart upload ---
         files = {
-            'file': (filename, data, ctype)
+            'file': (filename, img_data, ctype)
         }
-        upload_endpoint = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/media"
+        endpoint = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/media"
 
-        resp = requests.post(
-            upload_endpoint,
-            files=files,
-            auth=AUTH
-        )
+        resp = requests.post(endpoint, files=files, auth=AUTH)
         resp.raise_for_status()
 
         j = resp.json()
