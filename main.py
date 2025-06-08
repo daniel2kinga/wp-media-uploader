@@ -7,16 +7,16 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
 
-# 1) Carga variables de entorno (.env local o Railway)
+# 1) Carga .env o variables de entorno de Railway
 load_dotenv()
-WP_URL = os.getenv("WP_URL")               # p.ej. https://virtualizedmind.com
-WP_USER = os.getenv("WP_USER")             # tu login de WP
-WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")  # tu contraseña de WP (no Application Password)
+WP_URL          = os.getenv("WP_URL")           # e.g. https://virtualizedmind.com
+WP_USER         = os.getenv("WP_USER")          # tu login de WP
+WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")  # tu Application Password nativo de WP
 
 if not (WP_URL and WP_USER and WP_APP_PASSWORD):
     raise RuntimeError("Faltan WP_URL, WP_USER o WP_APP_PASSWORD en el entorno")
 
-# 2) Prepara objeto de Autenticación Básica
+# 2) Prepara Basic Auth con Application Passwords
 AUTH = HTTPBasicAuth(WP_USER, WP_APP_PASSWORD)
 
 app = FastAPI()
@@ -24,13 +24,11 @@ app = FastAPI()
 class Item(BaseModel):
     url: str
 
-def get_filename(path_or_url: str) -> str:
-    """Extrae nombre de fichero (con extensión) desde la URL."""
-    return os.path.basename(urlparse(path_or_url).path)
+def get_filename(url: str) -> str:
+    return os.path.basename(urlparse(url).path)
 
 def download_image(url: str) -> bytes:
-    """Descarga la imagen desde la URL dada."""
-    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    resp = requests.get(url, headers={"User-Agent":"Mozilla/5.0"})
     resp.raise_for_status()
     return resp.content
 
@@ -41,43 +39,39 @@ def health():
 @app.post("/upload_media")
 def upload_media(item: Item):
     """
-    1) Recibe JSON {"url": "..."}.
-    2) Descarga la imagen.
-    3) La sube a /wp-json/wp/v2/media con Basic Auth.
-    4) Devuelve {"id":..., "source_url": "..."}.
+    1) Descarga la imagen desde item.url
+    2) Sube usando multipart/form-data a /wp-json/wp/v2/media
+    3) Devuelve {id, source_url}
     """
     try:
-        # Descarga
-        img_data = download_image(item.url)
+        # --- 1) Descarga ---
+        data = download_image(item.url)
         filename = get_filename(item.url)
 
-        # Detectar MIME type
-        content_type, _ = mimetypes.guess_type(filename)
-        if not content_type:
-            content_type = "application/octet-stream"
+        # --- 2) Detecta Content-Type ---
+        ctype, _ = mimetypes.guess_type(filename)
+        if not ctype:
+            ctype = "application/octet-stream"
 
-        # Subida REST API
-        upload_endpoint = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/media"
-        headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Type": content_type
+        # --- 3) Prepara multipart upload ---
+        files = {
+            'file': (filename, data, ctype)
         }
+        upload_endpoint = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/media"
 
         resp = requests.post(
             upload_endpoint,
-            data=img_data,
-            headers=headers,
+            files=files,
             auth=AUTH
         )
-        resp.raise_for_status()  # lanzará HTTPError si no es 2xx
+        resp.raise_for_status()
 
-        result = resp.json()
-        return {"id": result["id"], "source_url": result["source_url"]}
+        j = resp.json()
+        return {"id": j["id"], "source_url": j["source_url"]}
 
     except requests.HTTPError as he:
-        # Capturar 403/401 y resto de HTTP
         code = he.response.status_code
         detail = he.response.text
-        raise HTTPException(status_code=code, detail=f"{code} {detail}")
+        raise HTTPException(status_code=code, detail=detail)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
